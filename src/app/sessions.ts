@@ -260,7 +260,11 @@ export class Sessions {
     const register = this.registerTool(agent, binding)
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
-      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', 'bash', 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
+      // The profile's shell tool is `bash` on POSIX and `pwsh` on Windows. `tools.restrict()` rejects a
+      // list that names a tool the host does not have, and the rejection aborted the whole orchestrator
+      // mount, so the panel answered 404 on win32 until the name matched the platform.
+      const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
+      binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', shell, 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
         agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
     } else {
       // An Executor Session keeps the profile's work tools it has, which DSH requires to be known; its own tools are not masked.
