@@ -22,7 +22,10 @@ const machine = (overrides: Partial<Machine> = {}): Machine => ({ ...machineOf(C
 const probe: Probe = async argv => (await exec(argv[0]!, argv.slice(1), { env: { PATH: path, HOME: dir } })).stdout
 const setupError = (place: string, code: string, values: Record<string, unknown> = {}) => expect.objectContaining({ place, code, values: expect.objectContaining(values) })
 
-beforeEach(async () => {
+beforeEach(async (context) => {
+  // Setup runs `gh` and `lark-cli` stand-ins that are `#!/bin/sh` scripts and reads `PATH` split by `:`, so these tests
+  // describe the POSIX deployment. The Windows rules of resolution are covered by `executable.spec.ts`, which runs there.
+  if (process.platform === 'win32') context.skip()
   dir = mkdtempSync(join(tmpdir(), 'deployment-'))
   mkdirSync(join(dir, 'bin')); mkdirSync(join(dir, 'state', 'worker-bin'), { recursive: true }); mkdirSync(join(dir, 'widgets', 'src'), { recursive: true })
   path = [join(dir, 'state-link', 'worker-bin'), `${join(dir, 'state', 'worker-bin')}/`, join(dir, 'bin'), '/usr/bin', '/bin'].join(':')

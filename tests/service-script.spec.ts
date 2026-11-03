@@ -24,7 +24,10 @@ const service = (pid: number, profile = 'superagent') => `${pid} node node /opt/
 /** Write active process lines (`pid ucomm args`) for the fake ps binary. Entries prefixed with `after:<pid> ` appear only after that PID exits. */
 const processes = (...lines: string[]) => writeFileSync(join(root, 'ps.txt'), lines.map(line => `${line}\n`).join(''))
 const started = (...lines: string[]) => writeFileSync(join(root, 'ps-started.txt'), lines.map(line => `${line}\n`).join(''))
-beforeEach(() => {
+beforeEach((context) => {
+  // The script is a POSIX shell script and every fixture around it is one — `ps`, `tmux` and `dsh` stand-ins included.
+  // Windows has none of them, so these tests have nothing to run there.
+  if (process.platform === 'win32') context.skip()
   root = mkdtempSync(join(tmpdir(), 'service script '))
   mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'))
   copyFileSync(join(import.meta.dirname, '..', 'scripts', 'dsh-superagent'), join(root, 'scripts', 'dsh-superagent'))

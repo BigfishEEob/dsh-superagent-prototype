@@ -60,6 +60,8 @@ declare module '@deepseek-ai/cordis' {
  */
 const WORK_TOOLS = ['read', 'write', 'edit', 'read_image', 'glob', 'grep', 'bash', 'pwsh', 'job_output', 'job_list', 'job_kill', 'web_search',
   'web_fetch', 'skill', 'todo_write', 'subagent', 'list_subagent_models', 'send_message', 'list_agents', 'interrupt_agent']
+/** The shell tools a profile may expose: `bash` on POSIX profiles, `pwsh` on Windows ones, and either on a profile with both. */
+const SHELL_TOOLS = ['bash', 'pwsh']
 /** What the main Session is told when it would wait: what it waits for comes to it, and a waiting step holds back the next. */
 const NO_WAIT = 'Reports, follow_up notices, new candidates and a background job\'s end with its output arrive by themselves as messages; '
   + 'end the turn instead of waiting for them.'
@@ -260,10 +262,11 @@ export class Sessions {
     const register = this.registerTool(agent, binding)
     for (const tool of host.tools(agent, ticket)) register(tool.name, tool.description, tool.schema, tool.execute)
     if (master) {
-      // The profile's shell tool is `bash` on POSIX and `pwsh` on Windows. `tools.restrict()` rejects a
-      // list that names a tool the host does not have, and the rejection aborted the whole orchestrator
-      // mount, so the panel answered 404 on win32 until the name matched the platform.
-      const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
+      // `tools.restrict()` rejects a list that names a tool the host does not have, and that rejection aborted the whole
+      // orchestrator mount, so the panel answered 404 on Windows. Name the shell tool this profile exposes — the Executor
+      // Session's filter below reads the same inherited view — instead of assuming the platform's usual one. A profile with
+      // neither keeps the platform's name, so the restriction still fails loudly instead of silently dropping the shell.
+      const shell = SHELL_TOOLS.find(name => agent.ctx.tools.get(name, scopeParentOf(agent))) ?? (process.platform === 'win32' ? 'pwsh' : 'bash')
       binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', shell, 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
         agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
     } else {

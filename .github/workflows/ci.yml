@@ -1,0 +1,38 @@
+# The suite ran only on POSIX before, so a Windows-only failure stayed invisible. Setup resolves the agent CLI and the
+# Executor runs `prepare` in a shell, and on Windows both differ: `gh` is `gh.exe` on PATH, `\` separates directories,
+# `;` splits PATH, and `env` does not exist. Both runners run the same commands; a test that cannot describe both
+# platforms skips itself with a reason rather than being excluded here.
+name: CI
+
+on:
+  push:
+    branches: [main, windows-compat]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build

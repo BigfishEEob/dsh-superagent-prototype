@@ -1,0 +1,3 @@
+# `scripts/dsh-superagent` is a POSIX shell script, and a Windows checkout whose `core.autocrlf` converts it to CRLF
+# breaks it under bash. Keep LF in the working tree on every platform.
+* text=auto eol=lf

@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, isAbsolute, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Store } from '../src/app/store.ts'
 import { Prompts, builtInBase, composePrompt, defaultPrompts, policySection, promptParts, type PromptConfig } from '../src/app/prompts.ts'
@@ -57,10 +57,13 @@ it('assembles every role from fixed sections around the team sections, whatever 
   expect(composePrompt(config, 'worker')).not.toContain(mainAdmissionPolicy)
 })
 
-it('reads a prompt file whatever its line ends and blank lines, and names a missing or empty one', () => {
+it('reads a prompt file whatever its line ends and blank lines, and names a missing or empty one', (context) => {
   const dir = mkdtempSync(join(tmpdir(), 'prompt-file-'))
   // promptFile resolves paths relative to prompts/; use a relative path to reach the temp dir.
   const name = (file: string) => relative(packagePath('prompts'), join(dir, file))
+  // A temp directory on a drive other than the package's has no relative path to it: `relative` returns an absolute one,
+  // which names nothing under prompts/. Nothing to read there, so the file cannot be set up.
+  if (isAbsolute(name('crlf'))) return context.skip()
   try {
     writeFileSync(join(dir, 'crlf.md'), 'One.\r\nTwo. \r\n \t\r\n\r\nThree.\r\n')
     writeFileSync(join(dir, 'blank.md'), ' \n\t\n')

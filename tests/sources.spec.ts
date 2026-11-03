@@ -1032,7 +1032,11 @@ describe('feishu event consumer', () => {
   let running: Promise<unknown> | undefined
   // The fake CLI is a real process, which starts slower while the whole suite runs.
   const until = { timeout: 10_000 }
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'feishu-consumer-')); controller = new AbortController() })
+  // The fake bot CLI is a `#!/bin/sh` script, so these tests describe the consumer on POSIX.
+  beforeEach((context) => {
+    if (process.platform === 'win32') context.skip()
+    dir = mkdtempSync(join(tmpdir(), 'feishu-consumer-')); controller = new AbortController()
+  })
   afterEach(async () => {
     controller.abort()
     await running

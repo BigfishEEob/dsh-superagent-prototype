@@ -1,7 +1,7 @@
 /** Plugin configuration and startup verification for repository access and agent CLI identities. */
 import { LIMITS } from './limits.ts'
 import { accessSync, constants, statSync } from 'node:fs'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { posix, win32 } from 'node:path'
 import type { Volatile } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
@@ -59,26 +59,52 @@ export interface Deployment extends Machine {
 }
 export interface FeishuBot { cli: string; appId: string; brand: 'feishu' | 'lark'; botId: string; name: string }
 
-/** Resolve a command name or absolute path to an executable file, ignoring the worker shim directory. */
-export function executable(name: string, path: string, exclude?: string): string {
-  if (name.includes('/') && !isAbsolute(name)) throw new Error(`${name} must be a command name or an absolute path`)
-  const candidates = isAbsolute(name) ? [name] : path.split(delimiter).filter(dir => isAbsolute(dir) && !(exclude && sameDirectory(dir, exclude))).map(dir => join(dir, name))
+/** Extensions a Windows `PATH` search tries. `.cmd` and `.bat` are missing on purpose: Node cannot spawn either without a shell. */
+const WIN32_EXTENSIONS = ['.exe', '.com']
+/** Extensions Windows would have matched, kept to name the file in the failure instead of reporting the command as absent. */
+const UNSPAWNABLE = ['.cmd', '.bat']
+/**
+ * Resolve a command name or absolute path to an executable file, ignoring the worker shim directory.
+ *
+ * A Windows `PATH` search needs `PATHEXT` (`gh` is `gh.exe`) and treats `\` as a separator; a POSIX search does neither.
+ * The platform is a parameter so both rule sets are testable on either runner. On Windows a `.cmd` or `.bat` match fails
+ * by name, because `spawn` cannot run one without a shell and reporting it as "not on PATH" would send the reader looking
+ * for a missing install.
+ */
+export function executable(name: string, path: string, exclude?: string, platform: NodeJS.Platform = process.platform): string {
+  const paths = platform === 'win32' ? win32 : posix
+  const windows = platform === 'win32'
+  if ((windows ? /[\\/]/ : /\//).test(name) && !paths.isAbsolute(name)) throw new Error(`${name} must be a command name or an absolute path`)
+  // Only Windows refuses these: on POSIX a file named `foo.bat` is an ordinary executable script.
+  const unspawnable = windows ? UNSPAWNABLE.find(extension => name.toLowerCase().endsWith(extension)) : undefined
+  if (unspawnable) throw new Error(`${name} is a ${unspawnable} file, which Node cannot spawn without a shell; name the executable instead`)
+  const extensions = windows ? ['', ...WIN32_EXTENSIONS] : ['']
+  const directories = paths.isAbsolute(name) ? [''] : path.split(paths.delimiter).filter(dir => paths.isAbsolute(dir) && !(exclude && sameDirectory(dir, exclude)))
+  const candidates = directories.flatMap(dir => extensions.map(extension => dir ? paths.join(dir, name + extension) : name + extension))
   for (const candidate of candidates) {
     try { if (statSync(candidate).isFile()) { accessSync(candidate, constants.X_OK); return candidate } }
     catch { /* Not an executable file here; try the next PATH directory. */ }
   }
-  throw new Error(`${name} is not an executable file${isAbsolute(name) ? '' : ' on PATH'}`)
+  const blocked = directories.flatMap(dir => UNSPAWNABLE.map(extension => dir ? paths.join(dir, name + extension) : name + extension))
+    .find(candidate => { try { return statSync(candidate).isFile() } catch { return false } })
+  if (blocked && windows) throw new Error(`${name} resolves to ${blocked}, which Node cannot spawn without a shell; name the .exe instead`)
+  throw new Error(`${name} is not an executable file${paths.isAbsolute(name) ? '' : ' on PATH'}`)
 }
 
 export type Probe = (argv: string[]) => Promise<string>
+/**
+ * The argv one startup check runs with: the shim-free `PATH` is handed to the command through the POSIX `env` helper,
+ * which Windows does not ship (`spawn env ENOENT`), so Windows keeps the inherited process environment and the command
+ * runs unchanged.
+ */
+export function workerArgv(argv: string[], path: string, platform: NodeJS.Platform = process.platform): string[] {
+  return platform === 'win32' ? argv : ['env', `PATH=${path}`, ...argv]
+}
 /** Run startup checks through DSH's worker subprocess service with worker shims removed from PATH so a `gh` wrapper script reaches the real binary. */
 export function workerProbe(subprocess: SubprocessRuntime, stateDir: string, cwd: string, signal: AbortSignal): Probe {
+  // Keep the inherited PATH on Windows; the configured CLI is an absolute path, which is what the shim exclusion was protecting.
   const path = withoutDirectory(process.env.PATH ?? '', workerBin(stateDir))
-  // Windows ships no `env` helper, so the POSIX `env PATH=... <cli>` prefix failed with
-  // `spawn env ENOENT` and setup never resolved the account. Keep the inherited PATH there; the
-  // configured CLI is an absolute path, which is what the shim exclusion was protecting.
-  const argvFor = (argv: string[]) => process.platform === 'win32' ? argv : ['env', `PATH=${path}`, ...argv]
-  return argv => runAsWorker(subprocess, argvFor(argv), cwd, AbortSignal.any([signal, AbortSignal.timeout(60_000)]))
+  return argv => runAsWorker(subprocess, workerArgv(argv, path), cwd, AbortSignal.any([signal, AbortSignal.timeout(60_000)]))
 }
 
 const GithubUser = z.object({ login: z.string().regex(/^[A-Za-z0-9-]+$/), id: z.number().int().positive() })
