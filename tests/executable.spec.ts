@@ -34,6 +34,9 @@ describe('a POSIX search', () => {
     writeFileSync(path, '')
     chmodSync(path, 0o644)
     expect(() => executable('gh', directory)).toThrow('gh is not an executable file on PATH')
+    // The absolute-path branch checks the execute bit too, which a POSIX search reads from the file itself.
+    expect(() => executable(path, '')).toThrow(`${path} is not an executable file`)
+    chmodSync(path, 0o755)
     expect(executable(path, '')).toBe(path)
   })
 })
